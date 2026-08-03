@@ -191,3 +191,11 @@ For issues or questions, please refer to the code documentation or contact the s
 ## License
 
 This project is developed for FBCA (Full Bright Christian Academy) educational purposes.
+
+## GitHub
+
+This repository has been published to GitHub: https://github.com/ajjake/Fbca-Lms
+
+- **Initial release:** `v1.0.0` — Initial upload of project files.
+
+Contributions, issues, and pull requests are welcome. Please open issues on the GitHub repository.
