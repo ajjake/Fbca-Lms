@@ -1,0 +1,12 @@
+/.idea/
+/node_modules/
+/vendor/
+.env
+/uploads/materials/
+/uploads/videos/
+/uploads/images/avatars/
+/config/config.php
+/config/database.php
+.vscode/
+.DS_Store
+thumbs.db
