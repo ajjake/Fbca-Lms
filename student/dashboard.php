@@ -1,84 +1,24 @@
 <?php
+use App\Application\StudentDashboardService;
+
 require_once '../config/config.php';
 requireRole(['student']);
 
 $pageTitle = 'Student Dashboard';
 include '../includes/header.php';
 
-$conn = getDBConnection();
-$studentId = getCurrentUserId();
-$studentLevel = getCurrentUserLevel();
-$currentQuarter = getCurrentQuarter();
+$service = new StudentDashboardService();
+$data = $service->getDashboardData();
 
-$cols = [];
-$checkAvatar = $conn->query("SHOW COLUMNS FROM users LIKE 'avatar'");
-if ($checkAvatar && $checkAvatar->num_rows > 0) $cols[] = 'avatar';
-$checkLrn = $conn->query("SHOW COLUMNS FROM users LIKE 'lrn'");
-if ($checkLrn && $checkLrn->num_rows > 0) $cols[] = 'lrn';
-$checkGName = $conn->query("SHOW COLUMNS FROM users LIKE 'guardian_name'");
-if ($checkGName && $checkGName->num_rows > 0) $cols[] = 'guardian_name';
-$checkGContact = $conn->query("SHOW COLUMNS FROM users LIKE 'guardian_contact'");
-if ($checkGContact && $checkGContact->num_rows > 0) $cols[] = 'guardian_contact';
-
-$select = 'name, level' . (!empty($cols) ? ', ' . implode(', ', $cols) : '');
-$stmt = $conn->prepare("SELECT $select FROM users WHERE id = ?");
-$stmt->bind_param("i", $studentId);
-$stmt->execute();
-$student = $stmt->get_result()->fetch_assoc();
-$stmt->close();
-
-// Get subjects count
-$stmt = $conn->prepare("SELECT COUNT(DISTINCT subject_id) as total FROM lessons WHERE level = ?");
-$stmt->bind_param("i", $studentLevel);
-$stmt->execute();
-$subjectsCount = $stmt->get_result()->fetch_assoc()['total'];
-$stmt->close();
-
-// Get completed lessons count
-$stmt = $conn->prepare("SELECT COUNT(*) as total FROM student_progress WHERE student_id = ? AND status = 'completed'");
-$stmt->bind_param("i", $studentId);
-$stmt->execute();
-$completedLessons = $stmt->get_result()->fetch_assoc()['total'];
-$stmt->close();
-
-// Get unlocked lessons count
-$stmt = $conn->prepare("SELECT COUNT(*) as total FROM student_progress WHERE student_id = ? AND status IN ('unlocked', 'in_progress', 'completed')");
-$stmt->bind_param("i", $studentId);
-$stmt->execute();
-$unlockedLessons = $stmt->get_result()->fetch_assoc()['total'];
-$stmt->close();
-
-// Get pending exam requests
-$stmt = $conn->prepare("SELECT COUNT(*) as total FROM exam_requests WHERE student_id = ? AND status = 'pending'");
-$stmt->bind_param("i", $studentId);
-$stmt->execute();
-$pendingRequests = $stmt->get_result()->fetch_assoc()['total'];
-$stmt->close();
-
-// Get final average grade
-$stmt = $conn->prepare("SELECT AVG(final_average) as avg_grade FROM final_grades WHERE student_id = ?");
-$stmt->bind_param("i", $studentId);
-$stmt->execute();
-$result = $stmt->get_result();
-$avgGrade = $result->num_rows > 0 ? $result->fetch_assoc()['avg_grade'] : 0;
-$stmt->close();
-
-// Get recent lessons
-$stmt = $conn->prepare("
-    SELECT l.*, s.name as subject_name, sp.status 
-    FROM lessons l
-    INNER JOIN subjects s ON l.subject_id = s.id
-    LEFT JOIN student_progress sp ON l.id = sp.lesson_id AND sp.student_id = ?
-    WHERE l.level = ? AND l.quarter = ?
-    ORDER BY s.name, l.order_index
-    LIMIT 6
-");
-$stmt->bind_param("iii", $studentId, $studentLevel, $currentQuarter);
-$stmt->execute();
-$recentLessons = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt->close();
-
-closeDBConnection($conn);
+$student = $data['student'];
+$currentQuarter = $data['currentQuarter'];
+$subjectsCount = $data['subjectsCount'];
+$completedLessons = $data['completedLessons'];
+$unlockedLessons = $data['unlockedLessons'];
+$pendingRequests = $data['pendingRequests'];
+$avgGrade = $data['avgGrade'];
+$recentLessons = $data['recentLessons'];
+$requestStatus = $data['requestStatus'];
 ?>
 
 <div class="card">
@@ -127,36 +67,7 @@ closeDBConnection($conn);
             <div class="stat-label">Unlocked Lessons</div>
             <div class="stat-value"><?php echo $unlockedLessons; ?></div>
         </div>
-        <?php
-        // Final average is restricted: only admins can see it by default.
-        // Students may request to view their final average per quarter; pending admin approval.
-        $showFinalAverage = false;
-        if (isAdmin()) {
-            $showFinalAverage = true;
-        } else {
-            // Check if student has an approved or pending final average request for the current quarter
-            $requestStatus = null;
-            $conn2 = getDBConnection();
-            // Only query if table exists
-            $check = $conn2->query("SHOW TABLES LIKE 'final_average_requests'");
-            if ($check && $check->num_rows > 0) {
-                $stmt2 = $conn2->prepare("SELECT status FROM final_average_requests WHERE student_id = ? AND quarter = ? ORDER BY requested_at DESC LIMIT 1");
-                $stmt2->bind_param("ii", $studentId, $currentQuarter);
-                if ($stmt2->execute()) {
-                    $res2 = $stmt2->get_result()->fetch_assoc();
-                    if ($res2) {
-                        $requestStatus = $res2['status'];
-                        if ($requestStatus === 'approved') {
-                            $showFinalAverage = true;
-                        }
-                    }
-                }
-                $stmt2->close();
-            }
-            closeDBConnection($conn2);
-        }
-
-        if ($showFinalAverage): ?>
+        <?php if ($data['showFinalAverage']): ?>
             <div class="stat-card">
                 <div class="stat-label">Final Average</div>
                 <div class="stat-value"><?php echo number_format($avgGrade, 2); ?>%</div>
@@ -170,7 +81,7 @@ closeDBConnection($conn);
     </div>
 </div>
 
-    <?php if (!isset($showFinalAverage) || !$showFinalAverage): ?>
+    <?php if (!$data['showFinalAverage']): ?>
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Final Average Request</h2>

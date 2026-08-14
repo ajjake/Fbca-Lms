@@ -1,4 +1,6 @@
 <?php
+use App\Application\StudentLessonService;
+
 require_once '../config/config.php';
 requireRole(['student']);
 
@@ -15,43 +17,15 @@ $subjectColors = [
 $pageTitle = 'My Lessons';
 include '../includes/header.php';
 
-$conn = getDBConnection();
+$service = new StudentLessonService();
 $studentId = getCurrentUserId();
 $studentLevel = getCurrentUserLevel();
-$selectedQuarter = $_GET['quarter'] ?? getCurrentQuarter();
+$selectedQuarter = (int) ($_GET['quarter'] ?? getCurrentQuarter());
 $selectedSubject = $_GET['subject'] ?? 'all';
+$subjectId = $selectedSubject !== 'all' ? (int) $selectedSubject : null;
 
-// Get all subjects
-$subjects = $conn->query("SELECT * FROM subjects ORDER BY name")->fetch_all(MYSQLI_ASSOC);
-
-// Build query for lessons
-$query = "
-    SELECT l.*, s.name as subject_name, s.code as subject_code, sp.status,
-           (SELECT COUNT(*) FROM lesson_scores ls WHERE ls.student_id = ? AND ls.lesson_id = l.id) as has_score
-    FROM lessons l
-    INNER JOIN subjects s ON l.subject_id = s.id
-    LEFT JOIN student_progress sp ON l.id = sp.lesson_id AND sp.student_id = ?
-    WHERE l.level = ? AND l.quarter = ?
-";
-
-$params = [$studentId, $studentId, $studentLevel, $selectedQuarter];
-$types = "iiii";
-
-if ($selectedSubject !== 'all') {
-    $query .= " AND s.id = ?";
-    $params[] = $selectedSubject;
-    $types .= "i";
-}
-
-$query .= " ORDER BY s.name, l.order_index";
-
-$stmt = $conn->prepare($query);
-$stmt->bind_param($types, ...$params);
-$stmt->execute();
-$lessons = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt->close();
-
-closeDBConnection($conn);
+$subjects = $service->getSubjects();
+$lessons = $service->getFilteredLessons($studentId, $studentLevel, $selectedQuarter, $subjectId);
 ?>
 
 <div class="card">

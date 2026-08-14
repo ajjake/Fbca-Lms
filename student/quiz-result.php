@@ -1,57 +1,43 @@
 <?php
+use App\Application\StudentLessonService;
+
 require_once '../config/config.php';
 requireRole(['student']);
 
-$lessonId = $_GET['lesson_id'] ?? 0;
-$scoreId = $_GET['score_id'] ?? 0;
+$lessonId = (int) ($_GET['lesson_id'] ?? 0);
+$scoreId = isset($_GET['score_id']) ? (int) $_GET['score_id'] : null;
 
 if (!$lessonId) {
     header('Location: lessons.php');
     exit();
 }
 
-$conn = getDBConnection();
 $studentId = getCurrentUserId();
-
-// Get score details
-if ($scoreId) {
-    $stmt = $conn->prepare("
-        SELECT ls.*, q.title as quiz_title, l.title as lesson_title, l.lesson_number, l.pace_number, s.name as subject_name
-        FROM lesson_scores ls
-        INNER JOIN quizzes q ON ls.quiz_id = q.id
-        INNER JOIN lessons l ON ls.lesson_id = l.id
-        INNER JOIN subjects s ON l.subject_id = s.id
-        WHERE ls.id = ? AND ls.student_id = ?
-    ");
-    $stmt->bind_param("ii", $scoreId, $studentId);
-} else {
-    $stmt = $conn->prepare("
-        SELECT ls.*, q.title as quiz_title, l.title as lesson_title, l.lesson_number, l.pace_number, s.name as subject_name
-        FROM lesson_scores ls
-        INNER JOIN quizzes q ON ls.quiz_id = q.id
-        INNER JOIN lessons l ON ls.lesson_id = l.id
-        INNER JOIN subjects s ON l.subject_id = s.id
-        WHERE ls.lesson_id = ? AND ls.student_id = ?
-        ORDER BY ls.taken_at DESC
-        LIMIT 1
-    ");
-    $stmt->bind_param("ii", $lessonId, $studentId);
-}
-
-$stmt->execute();
-$score = $stmt->get_result()->fetch_assoc();
-$stmt->close();
+$service = new StudentLessonService();
+$score = $service->getScoreDetails($studentId, $lessonId, $scoreId);
 
 if (!$score) {
     header('Location: lessons.php');
     exit();
 }
 
-closeDBConnection($conn);
+$attemptInfo = $service->getAttemptInfo($studentId, $score['quiz_id']);
+$totalAttempts = $attemptInfo['total_attempts'];
+$bestPercentage = $attemptInfo['best_percentage'];
+$hasPassed = $attemptInfo['has_passed'];
+$maxAttempts = 3;
+$remainingAttempts = max(0, $maxAttempts - $totalAttempts);
+$attemptNumber = $score['attempt_number'] ?? $totalAttempts;
+
+$quiz = $service->getQuizDetails($score['quiz_id'], $lessonId);
+$quizInfo = $quiz ?: ['passing_score' => 0];
+$nextLesson = $service->getNextLessonUnlockInfo($lessonId, $studentId);
+$allAttempts = $service->getAllQuizAttempts($studentId, $score['quiz_id']);
 
 $pageTitle = 'Quiz Results';
 include '../includes/header.php';
 ?>
+
 
 <div class="card">
     <div class="card-header">
@@ -92,34 +78,7 @@ include '../includes/header.php';
     </div>
     
     <?php
-    // Get attempt information
-    $conn = getDBConnection();
-    $stmt = $conn->prepare("
-        SELECT COUNT(*) as total_attempts, 
-               MAX(percentage) as best_percentage,
-               MAX(CASE WHEN passed = 1 THEN 1 ELSE 0 END) as has_passed
-        FROM lesson_scores 
-        WHERE student_id = ? AND quiz_id = ?
-    ");
-    $stmt->bind_param("ii", $studentId, $score['quiz_id']);
-    $stmt->execute();
-    $attemptInfo = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    
-    $totalAttempts = $attemptInfo['total_attempts'] ?? 0;
-    $bestPercentage = $attemptInfo['best_percentage'] ?? 0;
-    $hasPassed = $attemptInfo['has_passed'] ?? 0;
-    $maxAttempts = 3;
-    $remainingAttempts = $maxAttempts - $totalAttempts;
-    
-    // Get quiz details for passing score
-    $stmt = $conn->prepare("SELECT passing_score FROM quizzes WHERE id = ?");
-    $stmt->bind_param("i", $score['quiz_id']);
-    $stmt->execute();
-    $quizInfo = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    closeDBConnection($conn);
-    
+    // These values are already loaded via service layer
     $attemptNumber = $score['attempt_number'] ?? $totalAttempts;
     ?>
     
@@ -136,23 +95,6 @@ include '../includes/header.php';
             <i class="fas fa-check-circle"></i>
             <strong>Congratulations!</strong> You have passed this quiz. 
             <?php
-            // Check if next lesson is unlocked
-            $conn = getDBConnection();
-            $stmt = $conn->prepare("
-                SELECT l.id, l.title, l.lesson_number, l.pace_number, sp.status
-                FROM lessons l
-                LEFT JOIN student_progress sp ON l.id = sp.lesson_id AND sp.student_id = ?
-                WHERE l.subject_id = (SELECT subject_id FROM lessons WHERE id = ?)
-                AND l.quarter = (SELECT quarter FROM lessons WHERE id = ?)
-                AND l.level = (SELECT level FROM lessons WHERE id = ?)
-                AND l.order_index = (SELECT order_index FROM lessons WHERE id = ?) + 1
-            ");
-            $stmt->bind_param("iiiii", $studentId, $lessonId, $lessonId, $lessonId, $lessonId);
-            $stmt->execute();
-            $nextLesson = $stmt->get_result()->fetch_assoc();
-            $stmt->close();
-            closeDBConnection($conn);
-            
             if ($nextLesson && ($nextLesson['status'] === 'unlocked' || $nextLesson['status'] === 'in_progress')) {
                 echo 'The next PACE "' . htmlspecialchars($nextLesson['pace_number'] ?? $nextLesson['lesson_number']) . '" has been unlocked!';
             } elseif ($nextLesson && ($nextLesson['status'] === 'locked' || $nextLesson['status'] === null)) {
@@ -187,22 +129,7 @@ include '../includes/header.php';
         </div>
     <?php endif; ?>
     
-    <?php
-    // Get all attempts for this quiz
-    $conn = getDBConnection();
-    $stmt = $conn->prepare("
-        SELECT * FROM lesson_scores 
-        WHERE student_id = ? AND quiz_id = ? 
-        ORDER BY taken_at DESC
-    ");
-    $stmt->bind_param("ii", $studentId, $score['quiz_id']);
-    $stmt->execute();
-    $allAttempts = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
-    closeDBConnection($conn);
-    
-    if (count($allAttempts) > 1):
-    ?>
+    <?php if (count($allAttempts) > 1): ?>
     <div class="card" style="margin-top: 2rem;">
         <div class="card-header">
             <h2 class="card-title">All Attempts</h2>

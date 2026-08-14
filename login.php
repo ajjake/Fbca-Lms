@@ -1,4 +1,6 @@
 <?php
+use App\Application\AuthService;
+
 require_once 'config/config.php';
 
 // Redirect if already logged in
@@ -14,59 +16,25 @@ if (isLoggedIn()) {
 }
 
 $error = '';
+$authService = new AuthService();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = $_POST['username'] ?? '';
-    $password = $_POST['password'] ?? '';
-    
-    if (!empty($username) && !empty($password)) {
-        $conn = getDBConnection();
-        $stmt = $conn->prepare("SELECT id, username, password, name, email, role, level FROM users WHERE username = ?");
-        $stmt->bind_param("s", $username);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        
-        if ($result->num_rows === 1) {
-            $user = $result->fetch_assoc();
-            
-            // Verify password
-            if (password_verify($password, $user['password'])) {
-                // Set session variables
-                $_SESSION['user_id'] = $user['id'];
-                $_SESSION['username'] = $user['username'];
-                $_SESSION['name'] = $user['name'];
-                $_SESSION['email'] = $user['email'];
-                $_SESSION['role'] = $user['role'];
-                $_SESSION['level'] = $user['level'];
-                // Load avatar into session if column exists
-                $check = $conn->query("SHOW COLUMNS FROM users LIKE 'avatar'");
-                if ($check && $check->num_rows > 0) {
-                    $ast = $conn->prepare("SELECT avatar FROM users WHERE id = ?");
-                    $ast->bind_param("i", $user['id']);
-                    $ast->execute();
-                    $aRow = $ast->get_result()->fetch_assoc();
-                    $ast->close();
-                    $_SESSION['avatar'] = $aRow['avatar'] ?? null;
-                }
-                
-                // Redirect based on role
-                if ($user['role'] === 'student') {
-                    header('Location: ' . BASE_URL . 'student/dashboard.php');
-                } elseif ($user['role'] === 'teacher') {
-                    header('Location: ' . BASE_URL . 'teacher/dashboard.php');
-                } elseif ($user['role'] === 'admin') {
-                    header('Location: ' . BASE_URL . 'admin/dashboard.php');
-                }
-                exit();
-            } else {
-                $error = 'Invalid username or password.';
+    $username = trim($_POST['username'] ?? '');
+    $password = trim($_POST['password'] ?? '');
+
+    if ($username !== '' && $password !== '') {
+        if ($authService->login($username, $password)) {
+            if (isStudent()) {
+                header('Location: ' . BASE_URL . 'student/dashboard.php');
+            } elseif (isTeacher()) {
+                header('Location: ' . BASE_URL . 'teacher/dashboard.php');
+            } elseif (isAdmin()) {
+                header('Location: ' . BASE_URL . 'admin/dashboard.php');
             }
-        } else {
-            $error = 'Invalid username or password.';
+            exit();
         }
-        
-        $stmt->close();
-        closeDBConnection($conn);
+
+        $error = 'Invalid username or password.';
     } else {
         $error = 'Please enter both username and password.';
     }

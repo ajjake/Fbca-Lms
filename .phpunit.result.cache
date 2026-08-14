@@ -1,0 +1,1 @@
+{"version":1,"defects":{"UserTest::testGetDisplayNameUsesNameWhenPresent":4,"UserTest::testGetDisplayNameFallsBackToUsername":4},"times":{"UserTest::testGetDisplayNameUsesNameWhenPresent":0.014,"UserTest::testGetDisplayNameFallsBackToUsername":0}}

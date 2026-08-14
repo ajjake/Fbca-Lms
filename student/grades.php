@@ -1,47 +1,16 @@
 <?php
+use App\Application\StudentGradeService;
+
 require_once '../config/config.php';
 requireRole(['student']);
 
 $pageTitle = 'My Grades';
 include '../includes/header.php';
 
-$conn = getDBConnection();
-$studentId = getCurrentUserId();
-
-// Get all subjects
-$subjects = $conn->query("SELECT * FROM subjects ORDER BY name")->fetch_all(MYSQLI_ASSOC);
-
-// Get final grades for all subjects
-$finalGrades = [];
-foreach ($subjects as $subject) {
-    $stmt = $conn->prepare("SELECT * FROM final_grades WHERE student_id = ? AND subject_id = ?");
-    $stmt->bind_param("ii", $studentId, $subject['id']);
-    $stmt->execute();
-    $grade = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    
-    if ($grade) {
-        $finalGrades[$subject['id']] = $grade;
-    }
-}
-
-// Get quarter grades
-$quarterGrades = [];
-foreach ($subjects as $subject) {
-    for ($q = 1; $q <= 4; $q++) {
-        $stmt = $conn->prepare("SELECT * FROM quarter_grades WHERE student_id = ? AND subject_id = ? AND quarter = ?");
-        $stmt->bind_param("iii", $studentId, $subject['id'], $q);
-        $stmt->execute();
-        $grade = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        
-        if ($grade) {
-            $quarterGrades[$subject['id']][$q] = $grade;
-        }
-    }
-}
-
-closeDBConnection($conn);
+$service = new StudentGradeService();
+$data = $service->getGradesForStudent(getCurrentUserId());
+$subjects = $data['subjects'];
+$overallAverage = $data['overallAverage'];
 ?>
 
 <div class="card">
@@ -64,11 +33,12 @@ closeDBConnection($conn);
             <tbody>
                 <?php foreach ($subjects as $subject): ?>
                     <?php
-                    $final = $finalGrades[$subject['id']] ?? null;
-                    $q1 = $quarterGrades[$subject['id']][1] ?? null;
-                    $q2 = $quarterGrades[$subject['id']][2] ?? null;
-                    $q3 = $quarterGrades[$subject['id']][3] ?? null;
-                    $q4 = $quarterGrades[$subject['id']][4] ?? null;
+                    $quarterGrades = $subject['quarterGrades'] ?? [];
+                    $final = $subject['finalGrade'] ?? null;
+                    $q1 = $quarterGrades[1] ?? null;
+                    $q2 = $quarterGrades[2] ?? null;
+                    $q3 = $quarterGrades[3] ?? null;
+                    $q4 = $quarterGrades[4] ?? null;
                     ?>
                     <tr>
                         <td><strong><?php echo htmlspecialchars($subject['name']); ?></strong></td>
@@ -77,7 +47,7 @@ closeDBConnection($conn);
                                 <?php echo number_format($q1['final_grade'], 2); ?>
                                 <br><small style="color: #666;">
                                     (Lessons: <?php echo number_format($q1['lesson_average'], 2); ?>% 
-                                    <?php if ($q1['quarter_exam_score'] > 0): ?>
+                                    <?php if (!empty($q1['quarter_exam_score'])): ?>
                                         | Exam: <?php echo number_format($q1['quarter_exam_score'], 2); ?>%
                                     <?php endif; ?>)
                                 </small>
@@ -90,7 +60,7 @@ closeDBConnection($conn);
                                 <?php echo number_format($q2['final_grade'], 2); ?>
                                 <br><small style="color: #666;">
                                     (Lessons: <?php echo number_format($q2['lesson_average'], 2); ?>% 
-                                    <?php if ($q2['quarter_exam_score'] > 0): ?>
+                                    <?php if (!empty($q2['quarter_exam_score'])): ?>
                                         | Exam: <?php echo number_format($q2['quarter_exam_score'], 2); ?>%
                                     <?php endif; ?>)
                                 </small>
@@ -116,7 +86,7 @@ closeDBConnection($conn);
                                 <?php echo number_format($q4['final_grade'], 2); ?>
                                 <br><small style="color: #666;">
                                     (Lessons: <?php echo number_format($q4['lesson_average'], 2); ?>% 
-                                    <?php if ($q4['quarter_exam_score'] > 0): ?>
+                                    <?php if (!empty($q4['quarter_exam_score'])): ?>
                                         | Exam: <?php echo number_format($q4['quarter_exam_score'], 2); ?>%
                                     <?php endif; ?>)
                                 </small>
@@ -145,18 +115,6 @@ closeDBConnection($conn);
     <div class="card-header">
         <h2 class="card-title">Overall Final Average</h2>
     </div>
-    
-    <?php
-    $overallAverage = 0;
-    $count = 0;
-    foreach ($finalGrades as $grade) {
-        if ($grade['final_average'] > 0) {
-            $overallAverage += $grade['final_average'];
-            $count++;
-        }
-    }
-    $overallAverage = $count > 0 ? $overallAverage / $count : 0;
-    ?>
     
     <div style="text-align: center; padding: 2rem;">
         <div style="font-size: 3rem; font-weight: bold; color: var(--primary-color); margin: 1rem 0;">

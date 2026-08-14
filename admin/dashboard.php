@@ -1,24 +1,22 @@
 <?php
+use App\Application\AdminDashboardService;
+
 require_once '../config/config.php';
 requireRole(['admin']);
 
 $pageTitle = 'Admin Dashboard';
 include '../includes/header.php';
 
-$conn = getDBConnection();
+$service = new AdminDashboardService();
+$data = $service->getDashboardData();
 
-// Get statistics
-$totalStudents = $conn->query("SELECT COUNT(*) as total FROM users WHERE role = 'student'")->fetch_assoc()['total'];
-$totalTeachers = $conn->query("SELECT COUNT(*) as total FROM users WHERE role = 'teacher'")->fetch_assoc()['total'];
-$totalSubjects = $conn->query("SELECT COUNT(*) as total FROM subjects")->fetch_assoc()['total'];
-$totalLessons = $conn->query("SELECT COUNT(*) as total FROM lessons")->fetch_assoc()['total'];
-$totalQuizzes = $conn->query("SELECT COUNT(*) as total FROM quizzes")->fetch_assoc()['total'];
-$pendingRequests = $conn->query("SELECT COUNT(*) as total FROM exam_requests WHERE status = 'pending'")->fetch_assoc()['total'];
-
-// Get recent activities
-$recentUsers = $conn->query("SELECT * FROM users ORDER BY created_at DESC LIMIT 5")->fetch_all(MYSQLI_ASSOC);
-
-closeDBConnection($conn);
+$totalStudents = $data['totalStudents'];
+$totalTeachers = $data['totalTeachers'];
+$totalSubjects = $data['totalSubjects'];
+$totalLessons = $data['totalLessons'];
+$totalQuizzes = $data['totalQuizzes'];
+$pendingRequests = $data['pendingRequests'];
+$recentUsers = $data['recentUsers'];
 ?>
 
 <div class="card">

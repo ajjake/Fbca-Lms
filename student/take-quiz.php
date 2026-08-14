@@ -1,75 +1,39 @@
 <?php
+use App\Application\StudentLessonService;
+
 require_once '../config/config.php';
 requireRole(['student']);
 
-$quizId = $_GET['quiz_id'] ?? 0;
-$lessonId = $_GET['lesson_id'] ?? 0;
+$quizId = (int) ($_GET['quiz_id'] ?? 0);
+$lessonId = (int) ($_GET['lesson_id'] ?? 0);
 
 if (!$quizId || !$lessonId) {
     header('Location: lessons.php');
     exit();
 }
 
-$conn = getDBConnection();
 $studentId = getCurrentUserId();
-
-// Get quiz details
-$stmt = $conn->prepare("
-    SELECT q.*, l.title as lesson_title, l.lesson_number, l.pace_number, s.name as subject_name
-    FROM quizzes q
-    INNER JOIN lessons l ON q.lesson_id = l.id
-    INNER JOIN subjects s ON l.subject_id = s.id
-    WHERE q.id = ? AND l.id = ?
-");
-$stmt->bind_param("ii", $quizId, $lessonId);
-$stmt->execute();
-$quiz = $stmt->get_result()->fetch_assoc();
-$stmt->close();
+$service = new StudentLessonService();
+$quiz = $service->getQuizDetails($quizId, $lessonId);
 
 if (!$quiz) {
     header('Location: lessons.php');
     exit();
 }
 
-// Check attempts and best score
-$stmt = $conn->prepare("
-    SELECT COUNT(*) as attempt_count, 
-           MAX(percentage) as best_percentage,
-           MAX(CASE WHEN passed = 1 THEN 1 ELSE 0 END) as has_passed
-    FROM lesson_scores 
-    WHERE student_id = ? AND quiz_id = ?
-");
-$stmt->bind_param("ii", $studentId, $quizId);
-$stmt->execute();
-$attemptInfo = $stmt->get_result()->fetch_assoc();
-$stmt->close();
-
-$attemptCount = $attemptInfo['attempt_count'] ?? 0;
-$bestPercentage = $attemptInfo['best_percentage'] ?? 0;
-$hasPassed = $attemptInfo['has_passed'] ?? 0;
+$attemptInfo = $service->getAttemptInfo($studentId, $quizId);
+$attemptCount = $attemptInfo['total_attempts'];
+$bestPercentage = $attemptInfo['best_percentage'];
+$hasPassed = $attemptInfo['has_passed'];
 $maxAttempts = 3;
-$remainingAttempts = $maxAttempts - $attemptCount;
+$remainingAttempts = max(0, $maxAttempts - $attemptCount);
 
-// If already passed, redirect to results
-if ($hasPassed) {
+if ($hasPassed || $attemptCount >= $maxAttempts) {
     header('Location: quiz-result.php?lesson_id=' . $lessonId);
     exit();
 }
 
-// If exceeded max attempts, redirect to results
-if ($attemptCount >= $maxAttempts) {
-    header('Location: quiz-result.php?lesson_id=' . $lessonId);
-    exit();
-}
-
-// Get questions
-$stmt = $conn->prepare("SELECT * FROM quiz_questions WHERE quiz_id = ? ORDER BY order_index, id");
-$stmt->bind_param("i", $quizId);
-$stmt->execute();
-$questions = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt->close();
-
-closeDBConnection($conn);
+$questions = $service->getQuizQuestions($quizId);
 
 $pageTitle = 'Take Quiz: ' . $quiz['title'];
 $additionalScripts = ['assets/js/quiz.js'];

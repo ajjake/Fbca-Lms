@@ -1,53 +1,35 @@
 <?php
+use App\Application\PaceService;
+use App\Application\StudentLessonService;
+
 require_once '../config/config.php';
 requireRole(['student']);
 
-$lessonId = $_GET['id'] ?? 0;
+$lessonId = (int) ($_GET['id'] ?? 0);
 if (!$lessonId) {
     header('Location: lessons.php');
     exit();
 }
 
-$conn = getDBConnection();
 $studentId = getCurrentUserId();
+$service = new StudentLessonService();
+$paceService = new PaceService();
 
-// Get lesson details
-$stmt = $conn->prepare("
-    SELECT l.*, s.name as subject_name, s.code as subject_code, sp.status
-    FROM lessons l
-    INNER JOIN subjects s ON l.subject_id = s.id
-    LEFT JOIN student_progress sp ON l.id = sp.lesson_id AND sp.student_id = ?
-    WHERE l.id = ?
-");
-$stmt->bind_param("ii", $studentId, $lessonId);
-$stmt->execute();
-$lesson = $stmt->get_result()->fetch_assoc();
-$stmt->close();
-
+$lesson = $service->getLessonDetails($lessonId, $studentId);
 if (!$lesson) {
     header('Location: lessons.php');
     exit();
 }
 
-// Check if lesson is unlocked
 $status = $lesson['status'] ?? 'locked';
 
-// For tests, check if student has completed required PACEs
 if (($status === 'locked' || $status === null) && ($lesson['pace_type'] ?? 'lesson') !== 'lesson') {
-    require_once '../includes/pace-unlock.php';
-    if (!canAccessTest($conn, $studentId, $lessonId)) {
+    if (!$paceService->canAccessTest($studentId, $lessonId)) {
         header('Location: lessons.php?error=' . urlencode('You must complete the required PACEs before taking this test.'));
         exit();
     }
-    // Auto-unlock if requirements met
-    $stmt = $conn->prepare("
-        INSERT INTO student_progress (student_id, lesson_id, status, unlocked_at)
-        VALUES (?, ?, 'unlocked', NOW())
-        ON DUPLICATE KEY UPDATE status = 'unlocked', unlocked_at = NOW()
-    ");
-    $stmt->bind_param("ii", $studentId, $lessonId);
-    $stmt->execute();
-    $stmt->close();
+
+    $service->setLessonProgress($studentId, $lessonId, 'unlocked');
     $status = 'unlocked';
 }
 
@@ -56,49 +38,14 @@ if ($status === 'locked' || $status === null) {
     exit();
 }
 
-// Update progress to 'in_progress' if not already completed
 if ($status !== 'completed') {
-    $stmt = $conn->prepare("
-        INSERT INTO student_progress (student_id, lesson_id, status, unlocked_at)
-        VALUES (?, ?, 'in_progress', NOW())
-        ON DUPLICATE KEY UPDATE status = 'in_progress'
-    ");
-    $stmt->bind_param("ii", $studentId, $lessonId);
-    $stmt->execute();
-    $stmt->close();
+    $service->setLessonProgress($studentId, $lessonId, 'in_progress');
 }
 
-// Check if quiz exists
-$stmt = $conn->prepare("SELECT * FROM quizzes WHERE lesson_id = ?");
-$stmt->bind_param("i", $lessonId);
-$stmt->execute();
-$quiz = $stmt->get_result()->fetch_assoc();
-$stmt->close();
+$quiz = $service->getQuizByLesson($lessonId);
+$examRequest = $service->getExamRequest($studentId, $lessonId);
+$quizTaken = $service->getLatestQuizAttempt($studentId, $lessonId);
 
-// Check if exam request already exists
-$stmt = $conn->prepare("SELECT * FROM exam_requests WHERE student_id = ? AND lesson_id = ? AND request_type = 'lesson_exam'");
-$stmt->bind_param("ii", $studentId, $lessonId);
-$stmt->execute();
-$examRequest = $stmt->get_result()->fetch_assoc();
-$stmt->close();
-
-// Check if quiz already taken and get attempt info
-$stmt = $conn->prepare("
-    SELECT ls.*, 
-           (SELECT COUNT(*) FROM lesson_scores WHERE student_id = ? AND quiz_id = ls.quiz_id) as total_attempts,
-           (SELECT MAX(percentage) FROM lesson_scores WHERE student_id = ? AND quiz_id = ls.quiz_id) as best_percentage,
-           (SELECT MAX(CASE WHEN passed = 1 THEN 1 ELSE 0 END) FROM lesson_scores WHERE student_id = ? AND quiz_id = ls.quiz_id) as has_passed
-    FROM lesson_scores ls
-    WHERE ls.student_id = ? AND ls.lesson_id = ?
-    ORDER BY ls.taken_at DESC
-    LIMIT 1
-");
-$stmt->bind_param("iiiii", $studentId, $studentId, $studentId, $studentId, $lessonId);
-$stmt->execute();
-$quizTaken = $stmt->get_result()->fetch_assoc();
-$stmt->close();
-
-// Get attempt count and best score if quiz taken
 $totalAttempts = 0;
 $bestPercentage = 0;
 $hasPassed = 0;
@@ -109,8 +56,6 @@ if ($quizTaken) {
     $hasPassed = $quizTaken['has_passed'] ?? ($quizTaken['passed'] ? 1 : 0);
 }
 $remainingAttempts = $maxAttempts - $totalAttempts;
-
-closeDBConnection($conn);
 
 $pageTitle = $lesson['title'];
 include '../includes/header.php';

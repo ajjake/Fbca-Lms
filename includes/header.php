@@ -1,3 +1,8 @@
+<?php
+$notificationService = new App\Application\NotificationService();
+$pendingCount = $notificationService->getPendingExamRequestsCount();
+$pendingFinal = $notificationService->getPendingFinalAverageRequestsCount();
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -67,10 +72,7 @@
                         <li>
                             <a href="<?php echo BASE_URL; ?>admin/exam-requests.php">
                                 <i class="fas fa-bell"></i> Exam Requests
-                                <?php
-                                $pendingCount = getPendingExamRequestsCount();
-                                if ($pendingCount > 0):
-                                ?>
+                                <?php if ($pendingCount > 0): ?>
                                     <span class="notification-badge"><?php echo $pendingCount > 99 ? '99+' : $pendingCount; ?></span>
                                 <?php endif; ?>
                             </a>
@@ -78,10 +80,7 @@
                         <li>
                             <a href="<?php echo BASE_URL; ?>admin/final-requests.php">
                                 <i class="fas fa-file-lines"></i> Final Requests
-                                <?php
-                                $pendingFinal = getPendingFinalAverageRequestsCount();
-                                if ($pendingFinal > 0):
-                                ?>
+                                <?php if ($pendingFinal > 0): ?>
                                     <span class="notification-badge"><?php echo $pendingFinal > 99 ? '99+' : $pendingFinal; ?></span>
                                 <?php endif; ?>
                             </a>

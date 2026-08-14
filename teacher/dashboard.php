@@ -1,101 +1,21 @@
 <?php
+use App\Application\TeacherDashboardService;
+
 require_once '../config/config.php';
 requireRole(['teacher']);
 
 $pageTitle = 'Teacher Dashboard';
 include '../includes/header.php';
 
-$conn = getDBConnection();
-$teacherId = getCurrentUserId();
+$service = new TeacherDashboardService();
+$data = $service->getDashboardData(getCurrentUserId());
 
-// Get teacher info
-$stmt = $conn->prepare("SELECT name FROM users WHERE id = ?");
-$stmt->bind_param("i", $teacherId);
-$stmt->execute();
-$teacher = $stmt->get_result()->fetch_assoc();
-$stmt->close();
-
-// Get assigned subjects
-$stmt = $conn->prepare("
-    SELECT s.* FROM subjects s
-    INNER JOIN teacher_subjects ts ON s.id = ts.subject_id
-    WHERE ts.teacher_id = ?
-");
-$stmt->bind_param("i", $teacherId);
-$stmt->execute();
-$assignedSubjects = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt->close();
-
-// Get total students (restricted to teacher's assigned levels if any)
-$stmt = $conn->prepare("SELECT level FROM teacher_levels WHERE teacher_id = ?");
-$stmt->bind_param("i", $teacherId);
-$stmt->execute();
-$tl = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt->close();
-$assignedLv = array_column($tl, 'level');
-
-if (!empty($assignedLv)) {
-    // build placeholders
-    $placeholders = implode(',', array_fill(0, count($assignedLv), '?'));
-    $types = str_repeat('i', count($assignedLv));
-    $sql = "SELECT COUNT(*) as total FROM users WHERE role = 'student' AND level IN ($placeholders)";
-    $pstmt = $conn->prepare($sql);
-    // bind params dynamically
-    $bind_names[] = $types;
-    for ($i = 0; $i < count($assignedLv); $i++) {
-        $bind_name = 'bind' . $i;
-        $$bind_name = $assignedLv[$i];
-        $bind_names[] = &$$bind_name;
-    }
-    call_user_func_array(array($pstmt, 'bind_param'), $bind_names);
-    $pstmt->execute();
-    $totalStudents = $pstmt->get_result()->fetch_assoc()['total'];
-    $pstmt->close();
-} else {
-    $totalStudents = $conn->query("SELECT COUNT(*) as total FROM users WHERE role = 'student'")->fetch_assoc()['total'];
-}
-
-// Get pending exam requests
-$stmt = $conn->prepare("
-    SELECT COUNT(*) as total FROM exam_requests er
-    INNER JOIN lessons l ON er.lesson_id = l.id
-    INNER JOIN teacher_subjects ts ON l.subject_id = ts.subject_id
-    WHERE ts.teacher_id = ? AND er.status = 'pending'
-");
-$stmt->bind_param("i", $teacherId);
-$stmt->execute();
-$pendingRequests = $stmt->get_result()->fetch_assoc()['total'];
-$stmt->close();
-
-// Get total lessons managed
-$stmt = $conn->prepare("
-    SELECT COUNT(*) as total FROM lessons l
-    INNER JOIN teacher_subjects ts ON l.subject_id = ts.subject_id
-    WHERE ts.teacher_id = ?
-");
-$stmt->bind_param("i", $teacherId);
-$stmt->execute();
-$totalLessons = $stmt->get_result()->fetch_assoc()['total'];
-$stmt->close();
-
-// Get recent exam requests
-$stmt = $conn->prepare("
-    SELECT er.*, u.name as student_name, l.title as lesson_title, l.lesson_number, s.name as subject_name
-    FROM exam_requests er
-    INNER JOIN users u ON er.student_id = u.id
-    INNER JOIN lessons l ON er.lesson_id = l.id
-    INNER JOIN subjects s ON l.subject_id = s.id
-    INNER JOIN teacher_subjects ts ON l.subject_id = ts.subject_id
-    WHERE ts.teacher_id = ? AND er.status = 'pending'
-    ORDER BY er.requested_at DESC
-    LIMIT 5
-");
-$stmt->bind_param("i", $teacherId);
-$stmt->execute();
-$recentRequests = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt->close();
-
-closeDBConnection($conn);
+$teacher = $data['teacher'];
+$assignedSubjects = $data['assignedSubjects'];
+$totalStudents = $data['totalStudents'];
+$pendingRequests = $data['pendingRequests'];
+$totalLessons = $data['totalLessons'];
+$recentRequests = $data['recentRequests'];
 ?>
 
 <div class="card">

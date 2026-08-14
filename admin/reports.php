@@ -1,53 +1,26 @@
 <?php
+use App\Application\AdminReportService;
+
 require_once '../config/config.php';
 requireRole(['admin']);
 
 $pageTitle = 'Reports & Analytics';
 include '../includes/header.php';
 
-$conn = getDBConnection();
+$service = new AdminReportService();
+$data = $service->getReportData();
 
-// Get overall statistics
-$totalStudents = $conn->query("SELECT COUNT(*) as total FROM users WHERE role = 'student'")->fetch_assoc()['total'];
-$totalTeachers = $conn->query("SELECT COUNT(*) as total FROM users WHERE role = 'teacher'")->fetch_assoc()['total'];
-$totalLessons = $conn->query("SELECT COUNT(*) as total FROM lessons")->fetch_assoc()['total'];
-$totalQuizzes = $conn->query("SELECT COUNT(*) as total FROM quizzes")->fetch_assoc()['total'];
-
-// Get student progress statistics
-$completedLessons = $conn->query("SELECT COUNT(*) as total FROM student_progress WHERE status = 'completed'")->fetch_assoc()['total'];
-$unlockedLessons = $conn->query("SELECT COUNT(*) as total FROM student_progress WHERE status IN ('unlocked', 'in_progress', 'completed')")->fetch_assoc()['total'];
-
-// Get exam request statistics
-$pendingRequests = $conn->query("SELECT COUNT(*) as total FROM exam_requests WHERE status = 'pending'")->fetch_assoc()['total'];
-$approvedRequests = $conn->query("SELECT COUNT(*) as total FROM exam_requests WHERE status = 'approved'")->fetch_assoc()['total'];
-$deniedRequests = $conn->query("SELECT COUNT(*) as total FROM exam_requests WHERE status = 'denied'")->fetch_assoc()['total'];
-
-// Get top performing students
-$topStudents = $conn->query("
-    SELECT u.name, u.username, AVG(fg.final_average) as avg_grade
-    FROM users u
-    INNER JOIN final_grades fg ON u.id = fg.student_id
-    WHERE u.role = 'student'
-    GROUP BY u.id
-    ORDER BY avg_grade DESC
-    LIMIT 10
-")->fetch_all(MYSQLI_ASSOC);
-
-// Get subject statistics
-$subjectStats = $conn->query("
-    SELECT s.name, s.code,
-           COUNT(DISTINCT l.id) as total_lessons,
-           COUNT(DISTINCT q.id) as total_quizzes,
-           COUNT(DISTINCT sp.student_id) as students_enrolled
-    FROM subjects s
-    LEFT JOIN lessons l ON s.id = l.subject_id
-    LEFT JOIN quizzes q ON l.id = q.lesson_id
-    LEFT JOIN student_progress sp ON l.id = sp.lesson_id
-    GROUP BY s.id
-    ORDER BY s.name
-")->fetch_all(MYSQLI_ASSOC);
-
-closeDBConnection($conn);
+$totalStudents = $data['totalStudents'];
+$totalTeachers = $data['totalTeachers'];
+$totalLessons = $data['totalLessons'];
+$totalQuizzes = $data['totalQuizzes'];
+$completedLessons = $data['completedLessons'];
+$unlockedLessons = $data['unlockedLessons'];
+$pendingRequests = $data['pendingRequests'];
+$approvedRequests = $data['approvedRequests'];
+$deniedRequests = $data['deniedRequests'];
+$topStudents = $data['topStudents'];
+$subjectStats = $data['subjectStats'];
 ?>
 
 <div class="card">
